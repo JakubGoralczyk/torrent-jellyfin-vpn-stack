@@ -5,30 +5,11 @@ services:
   # - shared_data (named volume) stores downloaded media.
   # - Jellyfin reads shared_data at /media (read-only).
   # - qBittorrent traffic exits through gluetun (VPN kill switch).
-  # - ./config.example is one-time seed data copied on first run.
-  qbittorrent_config_init:
-    container_name: qbittorrent_config_init
-    image: alpine:3.20
-    restart: "no"
-    environment:
-      - QBIT_DOMAIN=${QBIT_DOMAIN}
-      - QBIT_TRUSTED_PROXY=${QBIT_TRUSTED_PROXY}
-      - QBIT_BAN_DURATION=${QBIT_BAN_DURATION}
-      - QBIT_MAX_AUTH_FAIL_COUNT=${QBIT_MAX_AUTH_FAIL_COUNT}
-      - QBIT_SESSION_TIMEOUT=${QBIT_SESSION_TIMEOUT}
-    entrypoint: ["/bin/sh", "/init_qbittorrent_config.sh"]
-    volumes:
-      - qbittorrent_config:/config
-      - ./config.example:/seed-config:ro
-      - ./scripts/init_qbittorrent_config.sh:/init_qbittorrent_config.sh:ro
 
   gluetun:
     container_name: gluetun
     image: qmcgaw/gluetun:latest
     restart: unless-stopped
-    depends_on:
-      qbittorrent_config_init:
-        condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
     cap_add:
@@ -59,8 +40,6 @@ services:
     image: ghcr.io/hotio/qbittorrent
     restart: unless-stopped
     depends_on:
-      qbittorrent_config_init:
-        condition: service_completed_successfully
       gluetun:
         condition: service_healthy
     network_mode: "service:gluetun"
@@ -75,8 +54,6 @@ services:
       - LIBTORRENT=${LIBTORRENT}
     volumes:
       - qbittorrent_config:/config # qBittorrent settings/database
-      - ./cert.pem:/run/qbit-tls/cert.pem:ro # TLS cert for WebUI
-      - ./key.pem:/run/qbit-tls/key.pem:ro # TLS key for WebUI
       - shared_data:/config/downloads # active download path (outside config volume)
       - shared_data:/data # shared media path for other services
 
