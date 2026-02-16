@@ -53,11 +53,7 @@ Generate a random password with:
 openssl rand -hex 32
 ```
 
-4. Optional: pre-seed initial qBittorrent defaults:
-
-```bash
-cp -a config.example config
-```
+4. Optional: tweak first-run seed defaults in `config.example/` before first start.
 
 ## 3) Cloudflare Tunnel Ingress
 
@@ -82,8 +78,8 @@ docker compose up -d --force-recreate
 - `shared_data` volume: downloaded media (`/config/downloads`, `/data`, and Jellyfin `/media`)
 - `jellyfin_config` volume: Jellyfin config
 - `jellyfin_cache` volume: Jellyfin cache/transcode
-- `./config` host directory is only used as a one-time seed source by `qbittorrent_config_init`
-- `./config` is intentionally git-ignored (live runtime data); `./config.example` is the tracked template
+- `./config.example` is used as the one-time seed source by `qbittorrent_config_init`
+- Live runtime state is in Docker volumes, not in a tracked `./config` folder
 
 ## 6) Security Notes
 

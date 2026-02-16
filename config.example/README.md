@@ -7,10 +7,9 @@ How it works:
 - After first run, edits here do not affect an already-initialized volume.
 
 Usage:
-1. Copy this template into `./config` before first `docker compose up`:
-   `cp -a config.example config`
+1. Edit files in `config.example/` if you want custom first-run defaults.
 2. Start the stack.
 
 Notes:
-- Keep live `./config` out of Git (it contains runtime state, logs, torrents, and downloads).
+- Keep live runtime state out of Git (it is stored in Docker volumes).
 - Security-sensitive WebUI keys are managed from `.env` by `scripts/init_qbittorrent_config.sh`.

@@ -5,7 +5,7 @@ services:
   # - shared_data (named volume) stores downloaded media.
   # - Jellyfin reads shared_data at /media (read-only).
   # - qBittorrent traffic exits through gluetun (VPN kill switch).
-  # - ./config (host bind) is optional seed data copied on first run.
+  # - ./config.example is one-time seed data copied on first run.
   qbittorrent_config_init:
     container_name: qbittorrent_config_init
     image: alpine:3.20
@@ -19,7 +19,7 @@ services:
     entrypoint: ["/bin/sh", "/init_qbittorrent_config.sh"]
     volumes:
       - qbittorrent_config:/config
-      - ./config:/seed-config:ro
+      - ./config.example:/seed-config:ro
       - ./scripts/init_qbittorrent_config.sh:/init_qbittorrent_config.sh:ro
 
   gluetun:
