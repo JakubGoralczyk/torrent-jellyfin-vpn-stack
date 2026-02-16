@@ -1,0 +1,142 @@
+
+services:
+  # Storage layout:
+  # - qbittorrent_config named volume stores qBittorrent app config/state.
+  # - shared_data (named volume) stores downloaded media.
+  # - Jellyfin reads shared_data at /media (read-only).
+  # - qBittorrent traffic exits through gluetun (VPN kill switch).
+  # - ./config (host bind) is optional seed data copied on first run.
+  qbittorrent_config_init:
+    container_name: qbittorrent_config_init
+    image: alpine:3.20
+    restart: "no"
+    environment:
+      - QBIT_DOMAIN=${QBIT_DOMAIN}
+      - QBIT_TRUSTED_PROXY=${QBIT_TRUSTED_PROXY}
+      - QBIT_BAN_DURATION=${QBIT_BAN_DURATION}
+      - QBIT_MAX_AUTH_FAIL_COUNT=${QBIT_MAX_AUTH_FAIL_COUNT}
+      - QBIT_SESSION_TIMEOUT=${QBIT_SESSION_TIMEOUT}
+    entrypoint: ["/bin/sh", "/init_qbittorrent_config.sh"]
+    volumes:
+      - qbittorrent_config:/config
+      - ./config:/seed-config:ro
+      - ./scripts/init_qbittorrent_config.sh:/init_qbittorrent_config.sh:ro
+
+  gluetun:
+    container_name: gluetun
+    image: qmcgaw/gluetun:latest
+    restart: unless-stopped
+    depends_on:
+      qbittorrent_config_init:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TZ=${TZ}
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+      - VPN_TYPE=${VPN_TYPE}
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
+      - FIREWALL=on
+      - FIREWALL_INPUT_PORTS=${QBIT_WEBUI_PORT}
+    healthcheck:
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      app_net:
+        ipv4_address: ${QBITTORRENT_IP}
+
+  qbittorrent:
+    container_name: qbittorrent
+    image: ghcr.io/hotio/qbittorrent
+    restart: unless-stopped
+    depends_on:
+      qbittorrent_config_init:
+        condition: service_completed_successfully
+      gluetun:
+        condition: service_healthy
+    network_mode: "service:gluetun"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=${UMASK}
+      - TZ=${TZ}
+      - WEBUI_PORTS=${QBIT_WEBUI_PORT}/tcp
+      - LIBTORRENT=${LIBTORRENT}
+    volumes:
+      - qbittorrent_config:/config # qBittorrent settings/database
+      - ./cert.pem:/run/qbit-tls/cert.pem:ro # TLS cert for WebUI
+      - ./key.pem:/run/qbit-tls/key.pem:ro # TLS key for WebUI
+      - shared_data:/config/downloads # active download path (outside config volume)
+      - shared_data:/data # shared media path for other services
+
+  cloudflared:
+    container_name: cloudflared
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - qbittorrent
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate --protocol http2 run
+    networks:
+      app_net:
+        ipv4_address: ${CLOUDFLARED_IP}
+
+  jellyfin:
+    # Cloudflare route:
+    # ${JELLYFIN_PUBLIC_URL} -> https://${JELLYFIN_IP}:8920
+    container_name: jellyfin
+    image: lscr.io/linuxserver/jellyfin:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - JELLYFIN_PublishedServerUrl=${JELLYFIN_PUBLIC_URL}
+      - ASPNETCORE_URLS=http://+:8096;https://+:8920
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=/run/jellyfin-tls/jellyfin.pfx
+      - ASPNETCORE_Kestrel__Certificates__Default__Password=${JELLYFIN_TLS_PFX_PASSWORD}
+    expose:
+      - "8096"
+      - "8920"
+    volumes:
+      - jellyfin_config:/config # Jellyfin app config
+      - jellyfin_cache:/cache # Jellyfin cache
+      - shared_data:/media:ro # qBittorrent downloads (read-only)
+      - ${JELLYFIN_TLS_PFX_FILE}:/run/jellyfin-tls/jellyfin.pfx:ro # TLS cert (PFX) for HTTPS
+    networks:
+      app_net:
+        ipv4_address: ${JELLYFIN_IP}
+
+volumes:
+  qbittorrent_config: # qBittorrent state and runtime config
+  shared_data: # media payload, shared between qBittorrent and Jellyfin
+  jellyfin_config: # Jellyfin settings and metadata
+  jellyfin_cache: # Jellyfin cache/transcode data
+
+networks:
+  app_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${APP_NET_SUBNET}

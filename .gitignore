@@ -1,0 +1,6 @@
+.env
+cert.pem
+key.pem
+jellyfin.pfx
+*.pfx
+config/
